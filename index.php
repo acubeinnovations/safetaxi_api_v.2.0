@@ -17,53 +17,155 @@ $app = new \Slim\Slim();
  */
 
 $app->get('/', function() use ($app) {
-$response["e"] = ERROR;
-ReturnResponse(200, $response);
+
+pagenotfound();
+
 });
 
 /**
  * validate-app
  * url - /validate-app
- * method - get
+ * method - post
  * params - app_id,imei
  */
 
 $app->get('/validate-app', function() use ($app) {
-	// define response array 
-	$response = array();
-	//add your class, if required
-	require_once dirname(__FILE__) . '/include/class/class_validate_app.php';
-	$validate_app = new Validate_app();
-	$app_id=$app->request()->get('app_id');
-	$imei=$app->request()->get('imei');
-	$validate = $validate_app->validate_app($app_id,$imei);
-	
-	if($validate){
-	//  success
-			$response["e"] = NO_ERROR;
-		
-	} else {
 
-	//  error occurred
-		$response["e"] = ERROR;
+	/*require_once dirname(__FILE__) . '/include/class/class_notifications.php';
+	$Notifications = new Notifications();
+	$Notifications->logreponds($app->request()->get('app_id'),$app->request()->get('imei'),$ac=1);*/
+
+	if($app->request()->post('app_id')!='' && $app->request()->post('imei')!=''){
+		// define response array 
+		$response = array();
+		//add your class, if required
+		require_once dirname(__FILE__) . '/include/class/class_validate_app.php';
+		$validate_app = new Validate_app();
+		$app_key=$app->request()->post('app_id');
+		$imei=$app->request()->post('imei');
+		$validate = $validate_app->validate_app($app_key,$imei);
+	
+		if($validate){
+		//  success
+				$response["e"] = NO_ERROR;
+		
+		} else {
+
+		//  error occurred
+			$response["e"] = ERROR;
 		
 		
+		}
+		ReturnResponse(200, $response);
+	}else{
+		pagenotfound();
 	}
-	ReturnResponse(200, $response);
 });
+
+
+/**
+ * register-with-gcm-id
+ * url - /register-gcm
+ * method - post
+ * params - app_id,imei,regid
+ */
+
+$app->get('/register-gcm', function() use ($app) {
+	if($app->request()->post('app_id')!='' && $app->request()->post('imei')!=''){
+		// define response array 
+		$response = array();
+		//add your class, if required
+		require_once dirname(__FILE__) . '/include/class/class_validate_app.php';
+		require_once dirname(__FILE__) . '/include/class/class_driver.php';
+
+		$Driver = new Driver();
+		$validate_app = new Validate_app();
+
+		$app_key=$app->request()->post('app_id');
+		$imei=$app->request()->post('imei');
+		$regid=$app->request()->post('regid');
+		$data=array('gcm_regid'=>$regid);
+		$driver = $Driver-update($data,$app_key);
+	
+		if($driver){
+		//  success
+				$response["e"] = NO_ERROR;
+		
+		} else {
+
+		//  error occurred
+			$response["e"] = ERROR;
+		
+		
+		}
+		ReturnResponse(200, $response);
+	}else{
+		pagenotfound();
+	}
+});
+
+
+/**
+ * vehicle-loc-logs
+ * url - /vehicle-loc-logs
+ * method - tcp
+ * params - app_id,lat,lng
+ */
+
+$app->get('/vehicle-loc-logs', function() use ($app) {
+
+	require_once dirname(__FILE__) . '/include/class/class_vehicle_location_log.php';
+	$host = "162.144.57.243";
+	$port = 10000;
+	$message = "";
+	set_time_limit(0);
+	$socket = socket_create(AF_INET, SOCK_STREAM, 0) or die("Could not create socket\n");
+
+	// bind socket to port
+	$result = socket_bind($socket, $host, $port) or die("Could not bind to socket\n");
+	// put server into passive state and listen for connections
+	$result = socket_listen($socket, 3); 
+	//or die("Could not set up socket listener\n");
+
+	while(true){
+		  $com = socket_accept($socket) or die("Could not accept incoming connection\n");
+	if($com){
+	// read client input
+	$input = socket_read($com, 1024) or die("Could not read input\n");
+	// clean up input string
+	//print_r($input);
+	
+	$json_res = json_encode($input);
+	$json_res_decode = json_decode($input);
+
+	$app_key	=	json_res_decode['app_id'];
+	$lat  		= json_res_decode['lt'];
+	$lng 		  = json_res_decode['lg'];
+	$VehicleLocLog->logLocation($app_key,$lat,$lng,$id=gINVALID);
+	//echo $json_res;
+	//echo "Client says: ".$input."</br>";
+	socket_write($com, $json_res, strlen ($json_res)) or die("Could not write output\n");
+	}
+	}
+	// close sockets
+	socket_close($com);
+	socket_close($socket);
+});
+
+
 
 /**
  * log locations and fetch notifications
- * url - /vehicle-loc-logs
+ * url - /trip-logs
  * method - get
  * params - app_id,lt,lg,td,lts,lgs,lte,lge,dt,srt,end,tid
  */
 
-$app->get('/vehicle-loc-logs', function() use ($app) {
+$app->get('/trip-logs', function() use ($app) {
 	$app_key=$app->request()->get('app_id');
 	$lat  = $app->request()->get('lt');
 	$lng  = $app->request()->get('lg');
-	$td   = $app->request()->get('td');
+	$ts   = $app->request()->get('ts');
 	$id	  =	$app->request()->get('tid');
 	//$response['res']=$app_key.' '.$lat.' '.$lng.' '.$td;
 	//add your class, if required
@@ -78,25 +180,26 @@ $app->get('/vehicle-loc-logs', function() use ($app) {
 	$driver_exists=$Driver->getDriver($app_key);
 	if($driver_exists!=false){
 		//$Notifications->logreponds($app_key,$tid='-1',$td,$_SERVER['QUERY_STRING']);
-	if($td==LOG_LOCATION){
+	if($ts==TRIP_START){
 		$result=$VehicleLocLog->logLocation($app_key,$lat,$lng,$id);
 		if($id>gINVALID){
 			$driver_status=DRIVER_STATUS_ENGAGED;
-			$Driver->changeStatus($app_key,$driver_status);
+			$res=$Driver->changeStatus($app_key,$driver_status);
 		}
-	}else if($td==LOG_LOCATION_AND_TRIP_DETAILS){
+		if($res==true){
+			$response["e"]=NO_ERROR;
+		}else{
+			$response["e"]=ERROR;
+		}
+	}else if($ts==TRIP_STOP){
 		
-		//$trip_from_lat													=	$app->request()->get('lts');
-		//$trip_from_lng													=	$app->request()->get('lgs');
-		//$trip_to_lat														=	$app->request()->get('lte');
 		$dataArray['distance_in_km_from_app']		=	$app->request()->get('dt');
-		//$trip_to_lng														=	$app->request()->get('lge');
 		$srt																		=	$app->request()->get('srt')/1000;
 		$end																		=	$app->request()->get('end')/1000;
 		$dataArray['trip_start_date_time']			=	date('Y-m-d H:i:s',$srt);
 		$dataArray['trip_end_date_time']				=	date('Y-m-d H:i:s',$end);
 		$dataArray['trip_status_id']						=	TRIP_STATUS_TRIP_COMPLETED;
-		$tot																		= $app->request()->get('tot');
+		$tot																		= $app->request()->get('dt')*MINIMUM_TARIFF;
 		$driver_status													=	DRIVER_STATUS_ACTIVE;
 		
 		$trips=$Trip->getDetails($id);
@@ -107,199 +210,17 @@ $app->get('/vehicle-loc-logs', function() use ($app) {
 			$dataArray['total_amount']	= $tot;
 		}
 		$Trip->update($dataArray,$id);	
-		$Driver->changeStatus($app_key,$driver_status);		
 		
-		//$VehicleLocLog->logLocation($app_key,$trip_from_lat,$trip_from_lng,$id);
-		//$VehicleLocLog->logLocation($app_key,$trip_to_lat,$trip_to_lng,$id);
-		$VehicleLocLog->logLocation($app_key,$lat,$lng,gINVALID);
-	}
-
-	$newtrips			=	$Notifications->tripNotifications($app_key); 
-	$awardedtrips		=	$Notifications->tripAwardedNotifications($app_key);
-	$regrettrips		=	$Notifications->tripRegretNotifications($app_key);
-	$canceledtrips		=	$Notifications->tripCancelNotifications($app_key); 
-	$updatedtrips		=	$Notifications->tripUpdateNotifications($app_key); 
-	$reccurenttrips		=	$Notifications->reccurenttrips($app_key); 
-	$commonmsgs			=	$Notifications->commonmsgNotifications($app_key); 
-	$paymentmsgs		=	$Notifications->paymentNotifications($app_key);
-	
-	$td_for_array=1;
-	
-	if($canceledtrips!=false && count($canceledtrips)>=1){
-
-		$td_for_array=$td_for_array*CANCEL_TRIP;
-
-	}
-
-	if($updatedtrips!=false && count($updatedtrips)>=1){
-
-		$td_for_array=$td_for_array*UPDATE_FUTURE_TRIP;
-
-	}
-	if($commonmsgs!=false && count($commonmsgs)>=1){
-
-		$td_for_array=$td_for_array*COMMON_MSGS;
-
-	}
-	if($paymentmsgs!=false && count($paymentmsgs)>=1){
-
-		$td_for_array=$td_for_array*PAYMENT_MSGS;
-
-	}
-	if($reccurenttrips!=false && count($reccurenttrips)>=1){
-
-		$td_for_array=$td_for_array*RECCURENT_TRIPS;
-
-	}
-
-
-	
-	if($newtrips!=false){
-		if($newtrips['trip_id'] > gINVALID){
-			$trips=$Trip->getDetails($newtrips['trip_id']);
-			
-			if($trips!=false){
-			$tripdatetime							=$trips['pick_up_date'].' '.$trips['pick_up_time'];
-			$trip_type_id=checkFutureOrInstantTrip($tripdatetime);
-			$dataArray=array('trip_type_id'=>$trip_type_id);
-			$res=$Trip->update($dataArray,$newtrips['trip_id']);
-			if(isset($trips['trip_from_landmark']) && $trips['trip_to_landmark']!=''){
-			$from=$trips['trip_from'].','.$trips['trip_from_landmark'];
-			}else{
-			$from=$trips['trip_from'];
-			}
-			if($trips['local_trip']=='f'){
-				if(isset($trips['trip_to_landmark']) && $trips['trip_to_landmark']!=''){
-				$to=$trips['trip_to'].','.$trips['trip_to_landmark'];
-				}else{
-				$to=$trips['trip_to'];
-				}
-			}else if($trips['local_trip']=='t'){
-				$to=$trips['trip_to'];
-			}
-			$km=$trips['distance_in_km_from_web'];
-			$rtn=$trips['round_trip'];
-			if($trip_type_id==INSTANT_TRIP){
-			$td_for_array=$td_for_array*NEW_INSTANT_TRIP;
-			$response['td']=$td_for_array;
-			$dates=explode('-',$trips['pick_up_date']);
-			$time=explode(':',$trips['pick_up_time']);
-			$unixtime=mktime($time[0],$time[1],0,$dates[1],$dates[2],$dates[0])*1000;
+		$res=$Driver->changeStatus($app_key,$driver_status);		
 		
-			$response['nct']=array('fr'=>$from,'nid'=>$newtrips['id'],'sec'=>$unixtime,'tid'=>$trips['id'],'to'=>$to,'km'=>$km,'rtn'=>$rtn);
-			
-			}else if($trip_type_id==FUTURE_TRIP){
-			$td_for_array=$td_for_array*NEW_FUTURE_TRIP;
-			$response['td']=$td_for_array;
-			$dates=explode('-',$trips['pick_up_date']);
-			$time=explode(':',$trips['pick_up_time']);
-			$unixtime=mktime($time[0],$time[1],0,$dates[1],$dates[2],$dates[0])*1000;
-			$response['nft']=array('fr'=>$from,'nid'=>$newtrips['id'],'sec'=>$unixtime,'tid'=>$trips['id'],'to'=>$to,'km'=>$km,'rtn'=>$rtn);
-			
-					
-			}	
-				$data=array('notification_status_id'=>NOTIFICATION_STATUS_NOTIFIED);
-				$Notifications->updateNotifications($data,$newtrips['id']);
-
-				$driver_status=DRIVER_STATUS_ENGAGED;
-				$Driver->changeStatus($app_key,$driver_status);	
-			}
+		$VehicleLocLog->logLocation($app_key,$lat,$lng,$id);
+		if($res==true){
+			$response["e"]=NO_ERROR;
+		}else{
+			$response["e"]=ERROR;
 		}
-	}else{
-	
-		$td_for_array=$td_for_array*NO_NEW_TRIP;
-		$response['td']=$td_for_array;
-
-	} 
-
-	if($canceledtrips!=false){
-		$response['clt']=$canceledtrips;
 	}
-	
-	if($awardedtrips!=false){
-		if($awardedtrips['trip_id'] > gINVALID){
-			$trips=$Trip->getDetails($awardedtrips['trip_id']);
-			
-			if($trips!=false){
-			$tripdatetime	=	$trips['pick_up_date'].' '.$trips['pick_up_time'];
-			$trip_type_id=checkFutureOrInstantTrip($tripdatetime);
-			$dataArray=array('trip_type_id'=>$trip_type_id);
-			$res=$Trip->update($dataArray,$awardedtrips['trip_id']);
-			$response['ac']='t';
-			$td_for_array=$td_for_array*TRIP_ACCEPTED;
-			$response['td']=$td_for_array;
-			$dates=explode('-',$trips['pick_up_date']);
-			$time=explode(':',$trips['pick_up_time']);
-			$unixtime=mktime($time[0],$time[1],0,$dates[1],$dates[2],$dates[0])*1000;
-			if(isset($trips['trip_from_landmark']) && $trips['trip_to_landmark']!=''){
-			$from=$trips['trip_from'].','.$trips['trip_from_landmark'];
-			}else{
-			$from=$trips['trip_from'];
-			}
-			if(isset($trips['trip_to_landmark']) && $trips['trip_to_landmark']!=''){
-			$to=$trips['trip_to'].','.$trips['trip_to_landmark'];
-			}else{
-			$to=$trips['trip_to'];
-			}
-			if($trip_type_id==INSTANT_TRIP){
-				$trip_typ='c';
-				$driver_status=DRIVER_STATUS_ENGAGED;
-			}else if($trip_type_id==FUTURE_TRIP){
-				$trip_typ='f';
-				$driver_status=DRIVER_STATUS_ACTIVE;
-			}
-			require_once dirname(__FILE__) . '/include/class/class_customer.php';
-			$Customer = new Customer();
-			$Customers=$Customer->getUserById($trips['customer_id']);	
-			$response['trip']=array('fr'=>$from,'typ'=>$trip_typ,'sec'=>$unixtime,'tid'=>$trips['id'],'to'=>$to,'cm'=>$Customers['mobile'],'cn'=>$Customers['name']);
-			
-				$data=array('notification_status_id'=>NOTIFICATION_STATUS_RESPONDED,'notification_view_status_id'=>NOTIFICATION_VIEWED_STATUS);
-				$Notifications->updateNotifications($data,$awardedtrips['id']);
-
-				
-				$Driver->changeStatus($app_key,$driver_status);	
-			}
-		}
-	}else if($regrettrips!=false){
-		$response['td']=$td_for_array*TRIP_ACCEPTED;
-		$response['ac']='f';
-		$data=array('notification_status_id'=>NOTIFICATION_STATUS_RESPONDED,'notification_view_status_id'=>NOTIFICATION_VIEWED_STATUS);
-		$Notifications->updateNotifications($data,$regrettrips['id']);
-		$driver_status=DRIVER_STATUS_ACTIVE;
-		$Driver->changeStatus($app_key,$driver_status);
 	}
-
-	if($updatedtrips!=false){
-		for($updated_trips_index=0;$updated_trips_index<count($updatedtrips);$updated_trips_index++){
-			$trips=$Trip->getDetails($updatedtrips[$updated_trips_index]);	
-				if($trips!=false){
-				$dates=explode('-',$trips['pick_up_date']);
-				$time=explode(':',$trips['pick_up_time']);
-				$unixtime=mktime($time[0],$time[1],0,$dates[1],$dates[2],$dates[0])*1000;
-				$trips_updated[$updated_trips_index]=array('fr'=>$trips['trip_from'],'sec'=>$unixtime,'tid'=>$trips['id'],'to'=>$trips['trip_to']);
-				}
-			
-			}
-			$response['upt']=$trips_updated;
-		}
-
-	if($commonmsgs!=false){
-		$response['cmsg']=$commonmsgs;
-	}
-
-	if($paymentmsgs!=false){
-		$response['pmsg']=$paymentmsgs;
-	}
-	if($reccurenttrips!=false){
-		$response['rct']=$reccurenttrips['trips'];
-		$response['cn']=$reccurenttrips['customer']['cn'];
-		$response['cm']=$reccurenttrips['customer']['cm'];
-	}
-	}else{
-		$response['e']=ERROR;
-	}
-
-	
 	ReturnResponse(200, $response);
 });
 
@@ -369,7 +290,6 @@ $app->get('/user-responds', function() use ($app) {
 	$app_key=$app->request()->get('app_id');
 	$trip_id=$app->request()->get('tid');
 	$notification_id=$app->request()->get('nid');
-	$amount=$app->request()->get('rate');
 	$ac=$app->request()->get('ac');
 	//add your class, if required
 	require_once dirname(__FILE__) . '/include/class/class_driver.php';
@@ -391,12 +311,33 @@ $app->get('/user-responds', function() use ($app) {
 		}
 
 	}else if($ac==TRIP_NOTIFICATION_ACCEPTED) {
-		$data=array('notification_status_id'=>NOTIFICATION_STATUS_RESPONDED,'notification_view_status_id'=>NOTIFICATION_VIEWED_STATUS,'amount'=>$amount);
+		$data=array('notification_status_id'=>NOTIFICATION_STATUS_RESPONDED,'notification_view_status_id'=>NOTIFICATION_VIEWED_STATUS);
 		$Notifications->updateNotifications($data,$notification_id);
 		$trips=$Trip->getDetails($trip_id);
-		$response['ac']=RESPONSE;
-		if(trim($trips['driver_id'])!=gINVALID && trim($trips['trip_status_id'])!=TRIP_STATUS_PENDING){
-		
+		if(trim($trips['driver_id'])==gINVALID && trim($trips['trip_status_id'])==TRIP_STATUS_PENDING){
+			$driver_id=$Driver->getDriver($app_key);
+			if($driver_id!=false){
+				$dataArray=array('driver_id'=>$driver_id['id'],'trip_status_id'=>TRIP_STATUS_ACCEPTED);
+				$res=$Trip->update($dataArray,$trip_id);
+				if($res==true){
+					$trips=$Trip->getDetails($trip_id);
+					require_once dirname(__FILE__) . '/include/class/class_customer.php';
+					$Customer = new Customer();
+					$Customers=$Customer->getUserById($trips['customer_id']);
+					$response['ac']=TRIP_AWARDED;
+					$response['cn']=$Customers['name'];
+					$response['cm']=$Customers['mobile'];
+					if($trips['trip_type_id']==FUTURE_TRIP){
+						$driver_status=DRIVER_STATUS_ACTIVE;
+						$Driver->changeStatus($app_key,$driver_status);
+					}
+				}else{
+					$response['ac']=TRIP_ERROR;
+				}		
+			}else{
+				$response['ac']=TRIP_ERROR;
+			}
+		}else{
 			$response['ac']=TRIP_REGRET;
 			$driver_status=DRIVER_STATUS_ACTIVE;
 			$Driver->changeStatus($app_key,$driver_status);
@@ -418,6 +359,7 @@ $app->get('/user-responds', function() use ($app) {
 });
 
 
+
 function checkFutureOrInstantTrip($tripdatetime){
 
 		$date1 = date_create(date('Y-m-d H:i:s'));
@@ -434,7 +376,13 @@ function checkFutureOrInstantTrip($tripdatetime){
 		}
 
 	}
+function pagenotfound(){
 
+header("HTTP/1.1 404 Page Not Found");
+//echo "--- error message here -----";
+die();
+
+}
 
 function ReturnResponse($http_response, $response) {
 	//return response : json

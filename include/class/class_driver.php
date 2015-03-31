@@ -41,6 +41,38 @@ class Driver{
 	}
 
 
+	public function update($dataArray = array(),$app_key){
+		if(count($dataArray)>0){
+			$i=0;
+			$strSQL = "UPDATE drivers SET ";
+			foreach($dataArray as $key=>$value){
+				$strSQL .= $key."='".$value;
+				if(count($dataArray)-1>$i){
+				$strSQL .="',";
+				}else{
+				$strSQL .="'";
+				}
+				$i++;
+			}
+			$strSQL .=" WHERE app_key='".$app_key."'";
+
+			//$strSQL = substr($strSQL,0,-1);
+
+			$rsRES = mysqli_query($this->connection,$strSQL);
+			
+			if(mysqli_affected_rows($this->connection) == 1){
+				
+				return true;
+			}else{
+				return false;
+			}	
+		}else{
+			
+			return false;
+		}
+		
+	}
+
 
 }
 ?>
